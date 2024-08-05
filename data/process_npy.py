@@ -28,7 +28,7 @@ if hospital_name == "SNUH" :
         [["Primus/ETCO2", 1.0], ["Datex-Ohmeda/ETCO2", 7.5], ["Solar8000/ETCO2", 1.0]],  # ETCO2
         [["Primus/FIO2", 1.0], ["Datex-Ohmeda/FIO2", 1.0], ["Solar8000/FIO2", 1.0]],  # FIO2, same
         [["Primus/TV", 1.0], ["Datex-Ohmeda/TV_EXP", 1.0], ["Solar8000/VENT_TV", 1.0]],  # TV, same
-        [["Primus/SET_PIP", 0.98067], ["Datex-Ohmeda/SET_PINSP", 1.], ["Solar8000/VENT_SET_PIP", 1.]], # SET_PIP
+        [["Primus/SET_PIP", 0.98067], ["Datex-Ohmeda/SET_PINSP", 1.], ["Solar8000/VENT_SET_PCP", 1.]], # SET_PIP
         [["Primus/PIP_MBAR", 1.0], ["Datex-Ohmeda/PIP", 1.01972], ["Solar8000/VENT_PIP", 1.0]],  # PIP
         [["Primus/PEEP_MBAR", 1.0], ["Datex-Ohmeda/SET_PEEP", 1.01972], ["Solar8000/VENT_PEEP", 1.0]],  # PEEP
         [["Primus/MV", 1.0], ["Datex-Ohmeda/MV_EXP", 1.0], ["Solar8000/VENT_MV", 1.0]],  # MV, same
@@ -72,10 +72,11 @@ def process_file(vital_path):
         if ppg_name in trk:
             break
 
-    if len(sensor_list) != len(variables):
-        return
 
     sensor_list.insert(0, "EVENT")
+
+    if len(sensor_list) != len(variables) + 1:
+        return
 
     # vital load
     vf = vitaldb.VitalFile(vital_path)
@@ -87,7 +88,7 @@ def process_file(vital_path):
                       interval=1/sampling_rate,
                       return_datetime=True)
 
-    print(recs_df.shape, ppgsqi_df.shape)
+    # print(recs_df.shape, ppgsqi_df.shape)
     # time index
     recs_df.index = recs_df["Time"].dt.floor("S")
     ppgsqi_df.index = ppgsqi_df["Time"]
@@ -127,16 +128,31 @@ def process_file(vital_path):
     recs = np.array(data_df[sensor_list]) # 11 variables
     label = np.array(data_df["Label"])
     ppgsqi = np.array(data_df[ppg_name].tolist()).reshape(-1,).astype(float)
+    # plt.subplot(4,1,1)
+    # plt.plot(ppgsqi.reshape(-1, ))
     ppgsqi = nk.ppg_clean(ppgsqi, sampling_rate=sampling_rate) # clean
+
+    # plt.subplot(4,1,2)
+    # plt.plot(ppgsqi.reshape(-1, ))
+
     ppgsqi = nk.ppg_quality(ppgsqi, sampling_rate=sampling_rate) # sqi
+
+    # plt.subplot(4,1,3)
+    # plt.plot(ppgsqi.reshape(-1, ))
+
     ppgsqi = np.mean(ppgsqi.reshape(-1, sampling_rate), axis=1) # mean
     
+    # plt.subplot(4,1,4)
+    # plt.plot(ppgsqi.reshape(-1, ))
+    # plt.savefig(f"{idx} sqi check.png")
+    # plt.clf()
      
     # Add all variables
+    recs = np.array(pd.DataFrame(recs).ffill().bfill())
     recs = recs * np.array(factor_list)  # Adjust unit
     recs = np.concatenate([np.array(recs), np.array(ppgsqi).reshape(-1, 1), np.array(label).reshape(-1, 1)], axis=1) # Concate
     recs = recs[::2]  # Resample for every 2 seconds
-    print(recs.shape)
+    # print(recs.shape)
 
     vitalfile = vital_path.split("/")[-1]
     if hospital_name == "SNUH" :
@@ -149,12 +165,13 @@ def process_file(vital_path):
 
 
 
-with Pool() as pool:
-    counters = pool.map(process_file, os.listdir(path))
+with Pool(processes = 14) as pool:
+    counters = pool.map(process_file, glob.glob(path))
 
-# for vital_path in glob.glob(path) :
-#     process_file(vital_path)
-#     break
+# for idx, vital_path in enumerate(glob.glob(path)) :
+#     process_file(idx, vital_path)
+#     if idx == 10 :
+#         break
     
 
 # plt.plot(recs[:, 0])
