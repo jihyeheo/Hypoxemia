@@ -1,0 +1,8 @@
+train_param:
+  init_lr: 1.0e-3
+  num_epochs: 100
+  input_shape: [30, 12]
+  demo_shape: 0 # no 적용
+  batch_size: 128
+  window_size : 30
+  sample_interval : 1

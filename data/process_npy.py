@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 
 
 sampling_rate = 125
-hospital_name = "SNUH"
+hospital_name = "CNUH"
 
 
 if hospital_name == "SNUH" :
@@ -38,7 +38,7 @@ if hospital_name == "SNUH" :
     ppg_list = ["SNUADC/PLETH", "Intellivue/PLETH"]
 
 else : 
-    path = f"./raw/{hospital_name}/*.vital"
+    path = f"./raw/{hospital_name}/test_event_true/*.vital"
     variables = [  # [sensor name, calibration factor] n = 10
         [["Intellivue/PLETH_SAT_O2", 1.0], ["X002/SPO2", 1.0], ["Radical7/SPO2", 1.0], ["Root/SPO2", 1.0], ["Bx50/PLETH_SPO2", 1.0]],  # O2 sat, same
         [["Intellivue/PLETH_HR", 1.0], ["Bx50/PLETH_HR", 1.0]],  # HR, 애매함. 
@@ -87,6 +87,10 @@ def process_file(vital_path):
     ppgsqi_df = vf.to_pandas(ppg_name, 
                       interval=1/sampling_rate,
                       return_datetime=True)
+    
+    if len(recs_df) == 0 or len(ppgsqi_df) == 0 :
+        print(vital_path)
+        return
 
     # print(recs_df.shape, ppgsqi_df.shape)
     # time index
@@ -110,6 +114,10 @@ def process_file(vital_path):
     start_indices = data_df[data_df["EVENT"] == "시작"].index
     end_indices = data_df[data_df["EVENT"] == "끝"].index
 
+    if len(start_indices) == 0 or len(end_indices) == 0 :
+        print(vital_path)
+        return
+
     for start_idx, end_idx in zip(start_indices, end_indices):
         for ii in range(start_idx, end_idx +1) :
             label = 1 if data_df.loc[ii, sensor_list[1]] < 95 else 0 # spo2
@@ -121,6 +129,10 @@ def process_file(vital_path):
     first_index = np.where(np.any(pd.isna(data_df[sensor_list].ffill()), axis=1) == False)[0][0]
     last_index = np.where(np.any(pd.isna(data_df[sensor_list].bfill()), axis=1) == True)[0][0]
 
+    if not first_index or not last_index :
+        print(vital_path)
+        return
+
     # Trim
     data_df = data_df.iloc[first_index:last_index+1]
     
@@ -128,25 +140,25 @@ def process_file(vital_path):
     recs = np.array(data_df[sensor_list]) # 11 variables
     label = np.array(data_df["Label"])
     ppgsqi = np.array(data_df[ppg_name].tolist()).reshape(-1,).astype(float)
-    # plt.subplot(4,1,1)
-    # plt.plot(ppgsqi.reshape(-1, ))
-    ppgsqi = nk.ppg_clean(ppgsqi, sampling_rate=sampling_rate) # clean
+    #print(ppgsqi.shape)
 
-    # plt.subplot(4,1,2)
-    # plt.plot(ppgsqi.reshape(-1, ))
+    ppgsqi = nk.ppg_clean(ppgsqi, sampling_rate=sampling_rate) # clean
+    #print(ppgsqi.shape)
+
+    if len(ppgsqi) == 0 :
+        print(vital_path)
+        return
 
     ppgsqi = nk.ppg_quality(ppgsqi, sampling_rate=sampling_rate) # sqi
-
-    # plt.subplot(4,1,3)
-    # plt.plot(ppgsqi.reshape(-1, ))
+    #print(ppgsqi.shape)
+    
+    if len(ppgsqi) == 0 :
+        print(vital_path)
+        return
 
     ppgsqi = np.mean(ppgsqi.reshape(-1, sampling_rate), axis=1) # mean
     
-    # plt.subplot(4,1,4)
-    # plt.plot(ppgsqi.reshape(-1, ))
-    # plt.savefig(f"{idx} sqi check.png")
-    # plt.clf()
-     
+
     # Add all variables
     recs = np.array(pd.DataFrame(recs).ffill().bfill())
     recs = recs * np.array(factor_list)  # Adjust unit
@@ -161,7 +173,7 @@ def process_file(vital_path):
             os.makedirs(f"./processed/{hospital_name}/{category}/")
         np.save(f"./processed/{hospital_name}/{category}/" + vitalfile + ".npy", recs)
     else :
-        np.save(f"./processed/{hospital_name}/" + vitalfile + ".npy", recs)
+        np.save(f"./processed/{hospital_name}/test_event_true/" + vitalfile + ".npy", recs)
 
 
 
@@ -172,12 +184,3 @@ with Pool(processes = 14) as pool:
 #     process_file(idx, vital_path)
 #     if idx == 10 :
 #         break
-    
-
-# plt.plot(recs[:, 0])
-        # colors = ["red","blue"]
-        # for i in range(len(start_indices)):
-        #     plt.axvline(start_indices[i], color= colors[i], linestyle="--")
-        #     plt.axvline(end95_indices[i], color= colors[i], linestyle="--")
-        #     #plt.axvline(end_indices[i], color="red", linestyle="--")
-        # plt.savefig("spo2.png")
