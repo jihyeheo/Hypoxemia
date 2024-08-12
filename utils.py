@@ -1,110 +1,73 @@
 from sklearn.metrics import (
-    accuracy_score, recall_score, precision_score, f1_score, roc_auc_score, 
-    precision_recall_curve, auc, confusion_matrix, RocCurveDisplay
+    accuracy_score,
+    recall_score,
+    precision_score,
+    f1_score,
+    roc_auc_score,
+    precision_recall_curve,
+    auc,
+    confusion_matrix,
+    RocCurveDisplay,
 )
 
 import matplotlib.pyplot as plt
 import numpy as np
-
-def evaluate_metrics(y_true, y_pred, y_prob):
-    """
-    Computes various evaluation metrics.
-
-    Parameters:
-    y_true (list or array): True binary labels.
-    y_pred (list or array): Predicted binary labels.
-    y_prob (list or array): Predicted probabilities.
-
-    Returns:
-    dict: Dictionary with accuracy, recall, precision, specificity, f1 score, auroc, and auprc.
-    """
-    
-    # Ensure y_true, y_pred, y_prob are 1D arrays
-    y_true = np.ravel(y_true)
-    y_pred = np.ravel(y_pred)
-    y_prob = np.ravel(y_prob)
-    
-    # Calculate confusion matrix elements
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    
-    # Calculate accuracy, recall, precision, f1 score
-    accuracy = accuracy_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred)
-    specificity = tn / (tn + fp)
-    f1 = f1_score(y_true, y_pred)
-    
-    # Calculate AUROC
-    auroc = roc_auc_score(y_true, y_prob)
-    
-    # Calculate AUPRC
-    precision_vals, recall_vals, _ = precision_recall_curve(y_true, y_prob)
-    auprc = auc(recall_vals, precision_vals)
-    
-    return {
-        'accuracy': accuracy,
-        'recall': recall,
-        'precision': precision,
-        'specificity': specificity,
-        'f1_score': f1,
-        'auroc': auroc,
-        'auprc': auprc
-    }
+import json
 
 
 def visualization(history, paths):
-    
-    plt.subplot(3,1,1)
+
+    plt.subplot(3, 1, 1)
     plt.ylim([0, 1])
     plt.plot(history["loss"])
     plt.plot(history["val_loss"])
     plt.title("loss")
 
-
     last_accuracy = history["auc"][-1]
     last_val_accuracy = history["val_auc"][-1]
-    
-    plt.subplot(3,1,2)
+
+    plt.subplot(3, 1, 2)
     plt.plot(history["auc"])
     plt.plot(history["val_auc"])
-    plt.text(len(history["auc"]) - 1, last_accuracy, f'{last_accuracy:.4f}', color='blue', ha='center', va='bottom')
-    plt.text(len(history["val_auc"]) - 1, last_val_accuracy, f'{last_val_accuracy:.4f}', color='orange', ha='center', va='bottom')
+    plt.text(len(history["auc"]) - 1, last_accuracy, f"{last_accuracy:.4f}", color="blue", ha="center", va="bottom")
+    plt.text(len(history["val_auc"]) - 1, last_val_accuracy, f"{last_val_accuracy:.4f}", color="orange", ha="center", va="bottom")
     plt.title("auc")
 
     last_accuracy = history["prc"][-1]
     last_val_accuracy = history["val_prc"][-1]
 
-    plt.subplot(3,1,3)
+    plt.subplot(3, 1, 3)
     plt.plot(history["prc"])
     plt.plot(history["val_prc"])
-    plt.text(len(history["prc"]) - 1, last_accuracy, f'{last_accuracy:.4f}', color='blue', ha='center', va='bottom')
-    plt.text(len(history["val_prc"]) - 1, last_val_accuracy, f'{last_val_accuracy:.4f}', color='orange', ha='center', va='bottom')
-    plt.title("prc")    
-    
+    plt.text(len(history["prc"]) - 1, last_accuracy, f"{last_accuracy:.4f}", color="blue", ha="center", va="bottom")
+    plt.text(len(history["val_prc"]) - 1, last_val_accuracy, f"{last_val_accuracy:.4f}", color="orange", ha="center", va="bottom")
+    plt.title("prc")
+
     plt.tight_layout()
     plt.savefig(paths)
     plt.clf()
+
 
 def calculate_specificity(true_pred, thresholds):
     # True Negative (TN)과 False Positive (FP) 초기화
     TN = 0
     FP = 0
-    
+
     # 임계값(threshold)마다 TN과 FP를 계산
     for i in range(len(true_pred)):
         if true_pred[i] < thresholds:
             TN += 1
         else:
             FP += 1
-    
+
     # Specificity 계산
     specificity = TN / (TN + FP)
-    
+
     return specificity
 
 
-def analyze(save_path, title, test_type, res) :
-# ROC
+def analyze(save_path, title, test_type, res):
+    # ROC
     tprs = []
     aucs = []
     auprcs = []
@@ -122,7 +85,6 @@ def analyze(save_path, title, test_type, res) :
             plot_chance_level=(fold == 4),
         )
         interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
-        #print(interp_tpr)
         interp_tpr[0] = 0.0
         tprs.append(interp_tpr)
         aucs.append(viz.roc_auc)
@@ -130,7 +92,6 @@ def analyze(save_path, title, test_type, res) :
         # AUPRC
         precision, recall, thresholds = precision_recall_curve(true, pred)
         auprcs.append(auc(recall, precision))
-    
 
     mean_tpr = np.mean(tprs, axis=0)
     mean_tpr[-1] = 1.0
@@ -178,25 +139,42 @@ def analyze(save_path, title, test_type, res) :
     numerator = 2 * recall * precision
     denom = recall + precision
     f1_scores = []
-    
-    f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom!=0))
+
+    f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
     max_f1_score = np.max(f1_scores)
-    opt_idx = np.where(f1_scores==max_f1_score)[0][0]
+    opt_idx = np.where(f1_scores == max_f1_score)[0][0]
+    y_pred_opt = (pred > thresholds[opt_idx]).astype(int)
+    tn, fp, fn, tp = confusion_matrix(true, y_pred_opt).ravel()
+    NPV = tn / (tn + fn) if (tn + fn) > 0 else 0
 
     print(thresholds[opt_idx])
-    print("Accuracy ", np.round((true == (pred > thresholds[opt_idx])).mean(),4))
-    print("Precision ", np.round(precision[opt_idx],4))
-    print("Recall ", np.round(recall[opt_idx],4))
-    print("Specificity ", np.round(calculate_specificity(pred, thresholds[opt_idx]),4))
-    print("F1 score ", np.round(max_f1_score,4))
-    print("AUROC ", np.round(aucs[best_fold],4))
-    print("AUPRC ", np.round(auprcs[best_fold],4))
+
+    metrics = {
+    "test type":test_type, 
+    "theshold":thresholds[opt_idx],
+    "Accuracy": np.round((true == (pred > thresholds[opt_idx])).mean(), 4),
+    "Precision(PPV)": np.round(precision[opt_idx], 4),
+    "NPV": np.round(NPV, 4),
+    "Recall": np.round(recall[opt_idx], 4),
+    "Specificity": np.round(calculate_specificity(pred, thresholds[opt_idx]), 4),
+    "F1 score": np.round(max_f1_score, 4),
+    "AUROC": np.round(aucs[best_fold], 4),
+    "AUPRC": np.round(auprcs[best_fold], 4),
+}
+
+    # 성능 지표 출력
+    for metric, value in metrics.items():
+        print(f"{metric}: {value}")
+
+    # history.json 파일에 성능 지표 저장
+    with open(save_path / "results.txt", "w") as f:
+        json.dump(metrics, f, indent=4)
 
 
 
     np.save(save_path / f"npy/{test_type}_{title}_true.npy", np.array(true))
     np.save(save_path / f"npy/{test_type}_{title}_pred.npy", np.array(pred))
-    
+
     viz = RocCurveDisplay.from_predictions(
         true,
         pred,
@@ -204,13 +182,11 @@ def analyze(save_path, title, test_type, res) :
     interp_tpr = np.interp(np.linspace(0, 1, 100), viz.fpr, viz.tpr)
     interp_tpr[0] = 0.0
     np.save(save_path / f"npy/{test_type}_auroc_value.npy", np.array(interp_tpr))
-    #plt.clf()
+    # plt.clf()
     precision, recall, _ = precision_recall_curve(true, pred)
     interp_recall = np.linspace(0, 1, 100)
     interp_precision = np.interp(interp_recall, recall[::-1], precision[::-1])
     np.save(save_path / f"npy/{test_type}_auprc_value.npy", np.array(interp_precision))
-
-
 
 
 # import os
@@ -231,7 +207,6 @@ def analyze(save_path, title, test_type, res) :
 #             plt.plot(data[:, i].reshape(-1,))
 #         plt.savefig("all_variable_visualization.png")
 #         break
-
 
 
 # if __name__ == "__main__" :
