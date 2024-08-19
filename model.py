@@ -1,17 +1,19 @@
 from sktime.classification.deep_learning import *
 from xgboost import XGBClassifier
 from collections import Counter
+import tensorflow as tf
 
 
 def get_model(model_name, input_shape=None, n_classes=None, y_train=None):
     cl_dict = {
         "gbm": XGBClassifier,
-        "cnn": CNNClassifier,
-        "cntc": CNTCClassifier,
-        "fcn": FCNClassifier,
+        # time series
         "lstm": LSTMFCNClassifier,
+        # cnn
         "resnet": ResNetClassifier,
-        "inception": InceptionTimeClassifier,
+        # "inception": InceptionTimeClassifier,
+        # transformer
+        "transformer" : MVTSTransformerClassifier,
     }
 
     if model_name in cl_dict:
@@ -31,14 +33,22 @@ def get_model(model_name, input_shape=None, n_classes=None, y_train=None):
                 subsample=0.5,
                 colsample_bytree=0.5,
             )
-        else:
-            if model_name not in ["inception", "cntc", "lstm"] :
-                model = cl_dict[model_name](activation="sigmoid",loss="binary_crossentropy")
-            elif  model_name == "lstm" :
-                model = cl_dict[model_name]()
-            else :
-                model = cl_dict[model_name](loss="binary_crossentropy")
-            model = model.build_model(input_shape=input_shape, n_classes=1)
+        elif model_name == "lstm" :
+            model = cl_dict[model_name]()
+
+        elif  model_name == "resnet" :
+            model = cl_dict[model_name](loss="binary_crossentropy")
+
+        elif  model_name == "inception" :
+            model = cl_dict[model_name]()
+            model.layers[-1].activation = tf.keras.activations.sigmoid
+
+        elif  model_name == "transformer" :
+            model = cl_dict[model_name]()
+
+
+
+        model = model.build_model(input_shape=input_shape, n_classes=1)
     else:
         raise ValueError(f"Model {model_name} is not recognized.")
 

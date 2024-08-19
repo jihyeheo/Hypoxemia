@@ -21,10 +21,11 @@ from sklearn.model_selection import StratifiedKFold
 from tensorflow import keras
 from tensorflow.keras.models import load_model
 from imblearn.under_sampling import RandomUnderSampler
+from tensorboard.plugins.hparams import api as hp
 
 # custom import
 from model import get_model
-from utils import visualization, analyze, analyze2
+from utils import analyze, FBetaScore
 from dataset import dataset
 
 
@@ -36,7 +37,7 @@ tf.random.set_seed(RANDOM_SEED)
 
 
 # parameter
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8-sig") as f:
     cfg = edict(yaml.safe_load(f))
 
 num_epochs = cfg.train_param.num_epochs
@@ -49,87 +50,72 @@ n_cv_split = cfg.train_param.n_cv_split
 METRICS = [
     keras.metrics.AUC(name="auc"),
     keras.metrics.AUC(name="prc", curve="PR"),
+    
 ]
 
 
 # args
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", default="gbm", choices=["gbm", "cnn", "cntc", "fcn", "resnet", "inception", "lstm"])
+parser.add_argument("--model", default="gbm", choices=["gbm", "lstm", "resnet", "inception", "transformer"])
+parser.add_argument("--weight")
 args = parser.parse_args()
-save_path = Path("weights/" + datetime.now().strftime("%m%d%H%M%S") + args.model)
-os.makedirs(save_path)
-shutil.copy("config.yaml", save_path / "config.yaml")
-
-os.makedirs(save_path / "npy/")
-os.makedirs(save_path / "fig/")
-
-
+save_path = f"{args.weight}"
 # Variables npy path list
-train_path_list = sorted(glob.glob(data_dir))
 int_test_path_list = sorted(glob.glob(data_dir.replace("train", "test")))
 ext_test_path_list = glob.glob(data_dir.replace("SNUH", "CNUH").replace("train", "test"))
 
-X_train, y_train = dataset(train_path_list, learning_win, pred_win)
-X_int_test, y_int_test = dataset(int_test_path_list, learning_win, pred_win)
-X_ext_test, y_ext_test = dataset(ext_test_path_list, learning_win, pred_win)
 
 
-rus = RandomUnderSampler(random_state=0)
-X_train_shape = X_train.shape[1:]
-flattened_len = X_train_shape[0] * X_train_shape[1]
-X_train, y_train = rus.fit_resample(X_train.reshape(-1, flattened_len), y_train)
-X_train = X_train.reshape((-1,) + X_train_shape)
 
-# # confirm dataset
-for X, y in [(X_train, y_train), (X_int_test, y_int_test), (X_ext_test, y_ext_test)]:
-    print(X.shape, y.shape)
-    print(X.shape, Counter(list(y)))
+HP_LEARNING_WIN = hp.HParam("learning_win", hp.Discrete([30, 60, 90]))
+HP_PRED_WIN = hp.HParam("pred_win", hp.Discrete([30, 60, 90]))
+HP_TEST_TYPE = hp.HParam("test_type", hp.Discrete(["int", "ext"]))
+with tf.summary.create_file_writer(save_path).as_default():
+    hp.hparams_config(
+    hparams=[HP_LEARNING_WIN, HP_PRED_WIN, HP_TEST_TYPE],
+        metrics=[
+            hp.Metric('Accuracy', display_name='Accuracy'),
+            hp.Metric('Precision', display_name='Precision'),
+            hp.Metric('Recall(PPV)', display_name='Recall(PPV)'),
+            hp.Metric('NPV', display_name='NPV'),
+            hp.Metric('Specificity', display_name='Specificity'),
+            hp.Metric('auc', display_name='AUC'),
+            hp.Metric('prc', display_name='PRC'),
+            hp.Metric('f1score', display_name='F1 Score'),
+            hp.Metric('f2score', display_name='F2 Score')
+        ]
+    )
 
-# train training
-skf = StratifiedKFold(n_splits=n_cv_split, shuffle=True, random_state=RANDOM_SEED)
-for fold, (train_index, val_index) in enumerate(skf.split(X_train, y_train), 1):
-    # train, val
-    X_train_fold, X_val_fold = np.swapaxes(X_train[train_index], 1, 2), np.swapaxes(X_train[val_index], 1, 2)
-    y_train_fold, y_val_fold = y_train[train_index, np.newaxis], y_train[val_index, np.newaxis]
-     
-    
-    # model load
-    model = get_model(args.model, input_shape=X_train_fold.shape[1:], n_classes=1, y_train=y_train_fold)
 
-    model.layers[-1].activation = tf.keras.activations.sigmoid
-    optimizer = tf.keras.optimizers.Adam(learning_rate=init_lr)
-    loss_fn = tf.keras.losses.BinaryCrossentropy(name="cross_entropy")
-    model.compile(optimizer=optimizer, loss=loss_fn, metrics=METRICS)
-    print(model.summary())
-    break
 
 # test results
+for learning_win in HP_LEARNING_WIN.domain.values :
+    for pred_win in HP_PRED_WIN.domain.values :
+        X_int_test, y_int_test, y_int_all = dataset(int_test_path_list, learning_win, pred_win)
+        X_ext_test, y_ext_test, y_ext_all = dataset(ext_test_path_list, learning_win, pred_win)
+        for test_type in HP_TEST_TYPE.domain.values :
+            res = []
 
-for test_type in ["int"]:#, "ext"]:
-    res = []
-    res_low_spo2 = []
-    for fold in range(n_cv_split):
-        x = np.swapaxes(globals()[f"X_{test_type}_test"], 1, 2)
-        
-        model = get_model(args.model, input_shape=X_train_fold.shape[1:], n_classes=1, y_train=y_train_fold)
-        x = np.swapaxes(globals()[f"X_{test_type}_test"], 1, 2)
-        y = globals()[f"y_{test_type}_test"]
-        
-        #model = load_model(save_path / f"{fold+1}_model.keras")
-        y_proba = model.predict(x)
+            for fold in range(1, n_cv_split+1, 1):
+                x = np.swapaxes(globals()[f"X_{test_type}_test"], 1, 2)
+                
+                model = get_model(args.model, input_shape=X_int_test.shape[1:], n_classes=1, y_train=y_int_all)
+                x = np.swapaxes(globals()[f"X_{test_type}_test"], 1, 2)
+                y = globals()[f"y_{test_type}_test"]
+                y_all = globals()[f"y_{test_type}_all"]
 
-        #print(x[:,:,0].flatten()))    
-        hypoxemia_total = np.any(x[:, :, 0] < 95, axis=1)
-        print(np.sum(hypoxemia_total))
-        y_low_spo2 = y[hypoxemia_total == True]
-        print(y_low_spo2.shape, Counter(y_low_spo2))
-        y_low_spo2_pred = y_proba[hypoxemia_total == True]
-        #print(y_low_spo2_pred)
-        #print(y_low_spo2_pred.shape, Counter(y_low_spo2_pred.flatten()))
+                if args.model == "gbm":
+                    model.load_model(save_path + f"/{fold+1}_model")
+                    y_proba = model.predict_proba(x.reshape(-1, flattened_len))[:, 1]
 
-        #res.append((y, y_proba))
-        res_low_spo2.append((y_low_spo2, y_low_spo2_pred))
-        break
+                else:
+                    print(save_path + f"/lw{learning_win},pw{pred_win}/{fold}_model.keras")
+                    custom_obj = {
+                    'FBetaScore': FBetaScore(beta=2)
+                }
+                    model = load_model(save_path + f"/lw{learning_win},pw{pred_win}/{fold}_model.keras", custom_objects=custom_obj) 
+                    y_proba = model.predict(x)
+
+                res.append((y, y_proba, y_all))
+            analyze(save_path, args.model, test_type, res, [learning_win, pred_win])  # visualzation auprc, auroc
         
-    #analyze(save_path, args.model, test_type, res)  # visualzation auprc, auroc
-    analyze2(save_path, args.model, test_type, res_low_spo2)  # visualzation auprc, auroc
