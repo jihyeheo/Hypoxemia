@@ -107,6 +107,9 @@ def process_file(vital_path):
         for ii in range(start_idx, end_idx + 1):
             label = 1 if data_df.loc[ii, sensor_list[1]] < 95 else 0  # spo2
             data_df.loc[ii, "Label"] = label
+    print("label")
+    print(data_df["Label"].value_counts(), (data_df.loc[:, sensor_list[1]] < 95).sum())
+
 
     sensor_list.remove("EVENT")
     first_index = np.where(np.any(pd.isna(data_df[sensor_list].ffill()), axis=1) == False)[0][0]
@@ -147,14 +150,15 @@ def process_file(vital_path):
     recs = np.concatenate([np.array(recs), np.array(label)[:, np.newaxis]], axis=1)  # Concate
     recs = recs[::2]  # Resample for every 2 seconds
 
+    print(recs.shape)
     category, vitalfile = vital_path.split("/")[-2:]
     np.save(f"./processed/{category}/{hospital_name}/" + vitalfile + ".npy", recs)
 
 
-with Pool(processes = 14) as pool:
-    counters = pool.map(process_file, glob.glob(path))
+# with Pool(processes = 14) as pool:
+#     counters = pool.map(process_file, glob.glob(path))
 
-# for idx, vital_path in enumerate(glob.glob(path)):
-#     process_file(vital_path)
-#     if idx == 1:
-#         break
+for idx, vital_path in enumerate(glob.glob(path)):
+    process_file(vital_path)
+    if idx == 1:
+        break

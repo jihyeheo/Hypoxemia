@@ -8,6 +8,7 @@ from sklearn.metrics import (
     auc,
     confusion_matrix,
     RocCurveDisplay,
+    ConfusionMatrixDisplay
 )
 
 import matplotlib.pyplot as plt
@@ -149,28 +150,28 @@ def analyze(save_path, title, test_type, res):
 
     print(thresholds[opt_idx])
 
-    metrics = {
-    "test type":test_type, 
-    "theshold":thresholds[opt_idx],
-    "Accuracy": np.round((true == (pred > thresholds[opt_idx])).mean(), 4),
-    "Precision(PPV)": np.round(precision[opt_idx], 4),
-    "NPV": np.round(NPV, 4),
-    "Recall": np.round(recall[opt_idx], 4),
-    "Specificity": np.round(calculate_specificity(pred, thresholds[opt_idx]), 4),
-    "F1 score": np.round(max_f1_score, 4),
-    "AUROC": np.round(aucs[best_fold], 4),
-    "AUPRC": np.round(auprcs[best_fold], 4),
-}
-
     # 성능 지표 출력
-    for metric, value in metrics.items():
-        print(f"{metric}: {value}")
+    # for metric, value in metrics.items():
+    #     print(f"{metric}: {value}")
+
+    metrics = {
+        "test type": test_type,
+        "theshold": float(thresholds[opt_idx]),
+        "Accuracy": float(np.round((true == (pred > thresholds[opt_idx])).mean(), 4)),
+        "Precision": float(np.round(precision[opt_idx], 4)),
+        "NPV": float(np.round(NPV, 4)),
+        "Recall(PPV)": float(np.round(recall[opt_idx], 4)),
+        "Specificity": float(np.round(calculate_specificity(pred, thresholds[opt_idx]), 4)),
+        "F1 score": float(np.round(max_f1_score, 4)),
+        "AUROC": float(np.round(aucs[best_fold], 4)),
+        "AUPRC": float(np.round(auprcs[best_fold], 4)),
+    }
 
     # history.json 파일에 성능 지표 저장
-    with open(save_path / "results.txt", "w") as f:
+    file_path = save_path / "results.json"
+
+    with open(file_path, "a") as f:
         json.dump(metrics, f, indent=4)
-
-
 
     np.save(save_path / f"npy/{test_type}_{title}_true.npy", np.array(true))
     np.save(save_path / f"npy/{test_type}_{title}_pred.npy", np.array(pred))
@@ -187,6 +188,71 @@ def analyze(save_path, title, test_type, res):
     interp_recall = np.linspace(0, 1, 100)
     interp_precision = np.interp(interp_recall, recall[::-1], precision[::-1])
     np.save(save_path / f"npy/{test_type}_auprc_value.npy", np.array(interp_precision))
+
+    ConfusionMatrixDisplay.from_predictions(
+        true,
+        y_pred_opt,
+        #display_labels=class_names,
+        cmap=plt.cm.Blues,
+    )
+
+
+    plt.savefig(save_path / f"fig/{test_type}_CM.png")
+
+
+
+
+def analyze2(save_path, title, test_type, res):
+    # ROC
+    tprs = []
+    aucs = []
+    auprcs = []
+    mean_fpr = np.linspace(0, 1, 100)
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for fold, (true, pred) in enumerate(res):
+        viz = RocCurveDisplay.from_predictions(
+            true,
+            pred,
+            name=f"ROC fold {fold+1}",
+            alpha=0.3,
+            lw=1,
+            ax=ax,
+            plot_chance_level=(fold == 4),
+        )
+        interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+        interp_tpr[0] = 0.0
+        tprs.append(interp_tpr)
+        aucs.append(viz.roc_auc)
+
+        # AUPRC
+        precision, recall, thresholds = precision_recall_curve(true, pred)
+        auprcs.append(auc(recall, precision))
+
+    # statistics
+
+    auprcs = np.array(auprcs)
+    best_fold = np.array(aucs).argmax()
+    true, pred = res[best_fold]
+
+    precision, recall, thresholds = precision_recall_curve(true, pred)
+    numerator = 2 * recall * precision
+    denom = recall + precision
+    f1_scores = []
+
+    f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
+    max_f1_score = np.max(f1_scores)
+    opt_idx = np.where(f1_scores == max_f1_score)[0][0]
+    y_pred_opt = (pred > thresholds[opt_idx]).astype(int)
+    
+
+    ConfusionMatrixDisplay.from_predictions(
+        true,
+        y_pred_opt,
+        #display_labels=class_names,
+        cmap=plt.cm.Blues,
+    )
+    plt.savefig(save_path / f"fig/hx_{test_type}_CM.png")
 
 
 # import os
