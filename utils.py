@@ -80,6 +80,9 @@ def calculate_specificity(true_pred, thresholds):
 
     return specificity
 
+def pretty_json(hp):
+  json_hp = json.dumps(hp, indent=2)
+  return "".join("\t" + line for line in json_hp.splitlines(True))
 
 
 def plot_confusion_matrix(true_labels, predictions):
@@ -240,20 +243,18 @@ def analyze(save_path, title, test_type, res, windows):
         
     }
 
-    #
+
     with tf.summary.create_file_writer(log_dir).as_default():
-        hp.hparams({"learning_win":learning_win,
-                    "pred_win":pred_win,
-                    "test_type":metrics["test type"]})
-        tf.summary.scalar("Accuracy", metrics["Accuracy"], step=1)
-        tf.summary.scalar("Precision", metrics["Precision"], step=1)
-        tf.summary.scalar("Recall(PPV)", metrics["Recall(PPV)"], step=1)
-        tf.summary.scalar("NPV", metrics["NPV"], step=1)
+        hp.hparams({"test_type":metrics["test type"]})
         tf.summary.scalar("Specificity", metrics["Specificity"], step=1)
         tf.summary.scalar("auc", metrics["AUROC"], step=1)
         tf.summary.scalar("prc", metrics["AUPRC"], step=1)
         tf.summary.scalar("f1score", metrics["F1 score"], step=1)
         tf.summary.scalar("f2score", metrics["F2 score"], step=1)
+        tf.summary.scalar("Accuracy", metrics["Accuracy"], step=1)
+        tf.summary.scalar("Precision", metrics["Precision"], step=1)
+        tf.summary.scalar("Recall(PPV)", metrics["Recall(PPV)"], step=1)
+        tf.summary.scalar("NPV", metrics["NPV"], step=1)
 
 
 
@@ -288,25 +289,3 @@ def analyze(save_path, title, test_type, res, windows):
         tf.summary.image("confusion matrix all", disp[None, ...], step=0)
         tf.summary.image("confusion matrix hypoxemia", disp2[None, ...], step=0)
 
-# import os
-# import matplotlib.pyplot as plt
-
-# def check_dataset() :
-
-#     path = "./data/processed/CNUH/"
-#     data_list = os.listdir(path)
-
-#     for data_path in data_list :
-#         data = np.load(path + data_path, allow_pickle=True)
-#         print(data.shape)
-
-#         fig = plt.figure(figsize=(14,12))
-#         for i in range(data.shape[1]) :
-#             plt.subplot(data.shape[1], 1, i+1)
-#             plt.plot(data[:, i].reshape(-1,))
-#         plt.savefig("all_variable_visualization.png")
-#         break
-
-
-# if __name__ == "__main__" :
-#     print(check_dataset())

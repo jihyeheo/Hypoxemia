@@ -1,11 +1,19 @@
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 
 def dataset(path_list, learning_win, pred_win):
-    X_list, y_tp_list, y_all_list = [], [], []
+    X_list, y_tp_list, y_all_list, demo_list = [], [], [], []
 
     for file_path in tqdm(path_list) :
+        # if "SNUH" in file_path : 
+        #     csv_file = pd.read_csv("./data/SNUH_final_vitaldb.csv")    
+        #     csv_demo = csv_file[csv_file["fileid"]==file_path.split("SNUH")[-1][1:-4]].reset_index()[["sex", "age", "weight", "height"]].to_numpy()[0,:]
+        #     csv_demo[0] = 1 if csv_demo[0] == 'F' else 0
+        # else :
+        #     csv_file = pd.read_csv("./data/CNUH_final_vitaldb.csv")
+        #     csv_demo = csv_file[csv_file["filename"]==file_path.split("/")[-1]].reset_index().iloc[0][["Sex", "나이", "몸무게", "키"]].to_numpy()[0,:]
         data = np.load(file_path, allow_pickle=True)
         x = data[:, :-1] #  n x features
         y = data[:, -1] #  n
@@ -36,5 +44,6 @@ def dataset(path_list, learning_win, pred_win):
         X_list.append(x)
         y_tp_list.append(y_tp)
         y_all_list.append(y_all)
+        #demo_list.append(csv_demo)
 
-    return np.concatenate(X_list, axis=0), np.concatenate(y_tp_list).astype(np.int64), np.concatenate(y_all_list).astype(np.int64)
+    return np.concatenate(X_list, axis=0), np.concatenate(y_tp_list).astype(np.int64), np.concatenate(y_all_list).astype(np.int64), np.array(demo_list).astype(float)

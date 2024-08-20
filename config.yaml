@@ -1,8 +1,8 @@
 train_param:
   init_lr: 2.0e-5 # 2.0e-5, 5.0e-5
-  num_epochs: 30
+  num_epochs: 100
   demo_shape: 0 # no 적용
   batch_size: 512
   learning_win : 30
   pred_win : 30
-  n_cv_split : 5
+  n_cv_split : 3

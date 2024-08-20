@@ -1,4 +1,5 @@
 from sktime.classification.deep_learning import *
+from sktime.classification.hybrid import *
 from xgboost import XGBClassifier
 from collections import Counter
 import tensorflow as tf
@@ -25,7 +26,7 @@ def get_model(model_name, input_shape=None, n_classes=None, y_train=None):
                 tree_method="gpu_hist",
                 use_label_encoder=False,
                 seed=0,
-                n_estimators=2000,
+                n_estimators=1000,
                 learning_rate=0.04,
                 max_depth=5,
                 min_child_weight=2,
@@ -34,21 +35,26 @@ def get_model(model_name, input_shape=None, n_classes=None, y_train=None):
                 colsample_bytree=0.5,
             )
         elif model_name == "lstm" :
-            model = cl_dict[model_name]()
+            # (n_, length, dimention)
+            model = cl_dict[model_name](lstm_size=4)
+            model = model.build_model(input_shape=input_shape, n_classes=1)
+            model.layers[-1].activation = tf.keras.activations.sigmoid
 
         elif  model_name == "resnet" :
             model = cl_dict[model_name](loss="binary_crossentropy")
+            model = model.build_model(input_shape=input_shape, n_classes=1)
 
         elif  model_name == "inception" :
             model = cl_dict[model_name]()
-            model.layers[-1].activation = tf.keras.activations.sigmoid
+            model = model.build_model(input_shape=input_shape, n_classes=1)
+            model.layers()[-1].activation = tf.keras.activations.sigmoid
 
         elif  model_name == "transformer" :
-            model = cl_dict[model_name]()
+            model = HIVECOTEV2()
 
 
 
-        model = model.build_model(input_shape=input_shape, n_classes=1)
+        #model = model.build_model(input_shape=input_shape, n_classes=1)
     else:
         raise ValueError(f"Model {model_name} is not recognized.")
 
