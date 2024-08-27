@@ -1,9 +1,5 @@
 from sklearn.metrics import (
     accuracy_score,
-    recall_score,
-    precision_score,
-    f1_score,
-    roc_auc_score,
     precision_recall_curve,
     auc,
     confusion_matrix,
@@ -18,11 +14,11 @@ import json
 import os
 from PIL import Image
 import io
-
 import tensorflow as tf
-from tensorflow.keras import backend as K
-from tensorflow.keras.metrics import Metric
+from keras import backend as K
+from keras.metrics import Metric
 from tensorboard.plugins.hparams import api as hp
+
 
 class FBetaScore(Metric):
     def __init__(self, beta=1, name="fbeta_score", **kwargs):
@@ -187,19 +183,11 @@ def plot_roc_curve(res, title):
     return tprs, aucs, auprcs, image_np
 
 
-def analyze(save_path, title, test_type, res, windows):
+def analyze(save_path, title, test_type, res, params):
     # ROC
-    # 디렉토리 경로를 문자열로 생성
-    npy_dir = os.path.join(save_path, f"lw{windows[0]},pw{windows[1]}", "npy")
-
-    # 디렉토리가 없으면 생성
-    for directory in [npy_dir]:
-        if not os.path.isdir(directory):
-            os.makedirs(directory)
-    
-    learning_win = windows[0]
-    pred_win = windows[1]
-    log_dir = save_path + f"/lw{learning_win},pw{pred_win}/{test_type}/"
+    learning_win = params[1]
+    pred_win = params[2]
+    log_dir = save_path +f"\\{test_type}\\"
 
     _, aucs, auprcs, image = plot_roc_curve(res, title)
     with tf.summary.create_file_writer(log_dir).as_default():
@@ -207,6 +195,7 @@ def analyze(save_path, title, test_type, res, windows):
 
     aucs = np.array(aucs)
     auprcs = np.array(auprcs)
+    print(test_type)
     print("AUROC(std) ", aucs.mean(), "(", aucs.std(), ")")
     print("AUPRC(std) ", auprcs.mean(), "(", auprcs.std(), ")")
 
@@ -216,26 +205,33 @@ def analyze(save_path, title, test_type, res, windows):
     precision, recall, thresholds = precision_recall_curve(true, pred)
     numerator = 2 * recall * precision
     denom = recall + precision
-    f1_scores = []
+    f1_scores = []    
+    f2_scores = []
 
     f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
-    max_f1_score = np.max(f1_scores)
-    opt_idx = np.where(f1_scores == max_f1_score)[0][0]
-    y_pred_opt = (pred > thresholds[opt_idx]).astype(int)
-    tn, fp, fn, tp = confusion_matrix(true, y_pred_opt).ravel()
+    
+    beta = 2
+    numerator = (1+(beta**2)) * recall * precision
+    denom = recall + (beta**2) * precision
+    f2_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
+
+    max_f1_score = np.max(f2_scores)
+    opt_idx = np.where(f2_scores == max_f1_score)[0][0]
+    
+    th = thresholds[opt_idx]
+    y_pred_opt = (pred > th).astype(int)
+    tn, _, fn, _ = confusion_matrix(true, y_pred_opt).ravel()
     NPV = tn / (tn + fn) if (tn + fn) > 0 else 0
     f2_score = fbeta_score(true, y_pred_opt, beta=2)
 
+    print("Threshold :", th)
     metrics = {
-        "test type": test_type,
-        "learning window" : learning_win,
-        "pred window" : pred_win,
-        "theshold": float(thresholds[opt_idx]),
+        "threshold": float(th),
         "Accuracy": float(np.round(accuracy_score(true, y_pred_opt), 4)),
         "Precision": float(np.round(precision[opt_idx], 4)),
         "NPV": float(np.round(NPV, 4)),
         "Recall(PPV)": float(np.round(recall[opt_idx], 4)),
-        "Specificity": float(np.round(calculate_specificity(pred, thresholds[opt_idx]), 4)),
+        "Specificity": float(np.round(calculate_specificity(pred, th), 4)),
         "F1 score": float(np.round(max_f1_score, 4)),
         "F2 score" : float(np.round(f2_score, 4)),
         "AUROC": float(np.round(aucs[best_fold], 4)),
@@ -243,29 +239,29 @@ def analyze(save_path, title, test_type, res, windows):
         
     }
 
-
+    hparams_dict = {"test_type" : params[0],
+                   "learning_win" : params[1],
+                   "pred_win" : params[2],
+                   "sampling_rate" : params[3],
+                   "batch_size" : params[4],
+                   "learning_rate" : params[5],
+                   }
+    
+    os.makedirs(log_dir, exist_ok=True)
     with tf.summary.create_file_writer(log_dir).as_default():
-        hp.hparams({"test_type":metrics["test type"]})
-        tf.summary.scalar("Specificity", metrics["Specificity"], step=1)
+        hp.hparams(hparams_dict, trial_id=log_dir.split("\\")[-1])
+
         tf.summary.scalar("auc", metrics["AUROC"], step=1)
         tf.summary.scalar("prc", metrics["AUPRC"], step=1)
         tf.summary.scalar("f1score", metrics["F1 score"], step=1)
         tf.summary.scalar("f2score", metrics["F2 score"], step=1)
+        tf.summary.scalar("threshold", metrics["threshold"], step=1)
+        
         tf.summary.scalar("Accuracy", metrics["Accuracy"], step=1)
         tf.summary.scalar("Precision", metrics["Precision"], step=1)
         tf.summary.scalar("Recall(PPV)", metrics["Recall(PPV)"], step=1)
         tf.summary.scalar("NPV", metrics["NPV"], step=1)
-
-
-
-    # history.json 파일에 성능 지표 저장
-    #file_path = save_path + "/results.json"
-
-    # with open(file_path, "a") as f:
-    #     json.dump(metrics, f, indent=4)
-
-    np.save(npy_dir + f"/{test_type}_{title}_true.npy", np.array(true))
-    np.save(npy_dir + f"/{test_type}_{title}_pred.npy", np.array(pred))
+        tf.summary.scalar("Specificity", metrics["Specificity"], step=1)
 
     viz = RocCurveDisplay.from_predictions(
         true,
@@ -273,19 +269,11 @@ def analyze(save_path, title, test_type, res, windows):
     )
     interp_tpr = np.interp(np.linspace(0, 1, 100), viz.fpr, viz.tpr)
     interp_tpr[0] = 0.0
-    np.save(npy_dir + f"/{test_type}_auroc_value.npy", np.array(interp_tpr))
     precision, recall, _ = precision_recall_curve(true, pred)
-    interp_recall = np.linspace(0, 1, 100)
-    interp_precision = np.interp(interp_recall, recall[::-1], precision[::-1])
-    np.save(npy_dir + f"/{test_type}_auprc_value.npy", np.array(interp_precision))
-
-    
     disp = plot_confusion_matrix(true, y_pred_opt)
-    
     mask = y_all == 1
     disp2 = plot_confusion_matrix(true[mask], y_pred_opt[mask])
 
     with tf.summary.create_file_writer(log_dir).as_default():
-        tf.summary.image("confusion matrix all", disp[None, ...], step=0)
-        tf.summary.image("confusion matrix hypoxemia", disp2[None, ...], step=0)
-
+        tf.summary.image(f"{test_type} confusion matrix all", disp[None, ...], step=0)
+        tf.summary.image(f"{test_type} confusion matrix hypoxemia", disp2[None, ...], step=0)

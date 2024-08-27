@@ -2,96 +2,83 @@ import pandas as pd
 import vitaldb
 import glob
 import numpy as np
-from multiprocessing import Pool
+from multiprocessing import Pool, freeze_support
 import neurokit2 as nk
 import os
 import matplotlib.pyplot as plt
 import warnings
+import yaml
 
 warnings.filterwarnings("ignore")
-sampling_rate = 125
+sampling_rate = 500
+sampling_rate_after = 100
 hospital_name = "SNUH"
 
-if hospital_name == "SNUH":
-    path = f"./raw/{hospital_name}/*/*.vital"
-    variables = [  # [sensor name, calibration factor] n = 11
-        [["Intellivue/PLETH_SAT_O2", 1.0], ["Solar8000/PLETH_SPO2", 1.0], ["Root/SPO2", 1.0]],  # O2 sat, same
-        [["Intellivue/PLETH_HR", 1.0], ["Solar8000/PLETH_HR", 1.0]],  # HR, same
-        [["Primus/ETCO2", 1.0], ["Datex-Ohmeda/ETCO2", 7.5], ["Solar8000/ETCO2", 1.0]],  # ETCO2
-        [["Primus/FIO2", 1.0], ["Datex-Ohmeda/FIO2", 1.0], ["Solar8000/FIO2", 1.0]],  # FIO2, same
-        [["Primus/TV", 1.0], ["Datex-Ohmeda/TV_EXP", 1.0], ["Solar8000/VENT_TV", 1.0]],  # TV, same
-        [["Primus/SET_PIP", 0.98067], ["Datex-Ohmeda/SET_PINSP", 1.0], ["Solar8000/VENT_SET_PCP", 1.0]],  # SET_PIP
-        [["Primus/PIP_MBAR", 1.0], ["Datex-Ohmeda/PIP", 1.01972], ["Solar8000/VENT_PIP", 1.0]],  # PIP
-        [["Primus/PEEP_MBAR", 1.0], ["Datex-Ohmeda/SET_PEEP", 1.01972], ["Solar8000/VENT_PEEP", 1.0]],  # PEEP
-        [["Primus/MV", 1.0], ["Datex-Ohmeda/MV_EXP", 1.0], ["Solar8000/VENT_MV", 1.0]],  # MV, same
-        [["Solar8000/NIBP_SBP", 1.0], ["Intellivue/NIBP_SYS", 1.0]],  # SBP, same
-        [["Solar8000/NIBP_DBP", 1.0], ["Intellivue/NIBP_DIA", 1.0]],  # DBP, same
-    ]
-    ppg_list = ["SNUADC/PLETH", "Intellivue/PLETH"]
+with open(f'{hospital_name}_variables.yaml', 'r') as file:
+    data = yaml.safe_load(file)
 
-else:
-    path = f"./raw/{hospital_name}/test/*.vital"
-    variables = [  # [sensor name, calibration factor] n = 10
-        [
-            ["Intellivue/PLETH_SAT_O2", 1.0],
-            ["X002/SPO2", 1.0],
-            ["Radical7/SPO2", 1.0],
-            ["Root/SPO2", 1.0],
-            ["Bx50/PLETH_SPO2", 1.0],
-        ],  # O2 sat, same
-        [["Intellivue/PLETH_HR", 1.0], ["Bx50/PLETH_HR", 1.0]],  # HR, 애매함.
-        [["Primus/ETCO2", 1.0], ["Datex-Ohmeda/ETCO2", 7.5], ["Flow-i/ETCO2", 1.0]],  # ETCO2
-        [["Primus/FIO2", 1.0], ["Datex-Ohmeda/FIO2", 1.0], ["Flow-i/FIO2", 1.0]],  # FIO2, same
-        [["Primus/TV", 1.0], ["Datex-Ohmeda/TV_EXP", 1.0], ["Flow-i/TV_EXP", 1.0]],  # TV, same
-        [["Primus/SET_PIP", 0.98067], ["Datex-Ohmeda/SET_PINSP", 1.0]],  # SET_PIP
-        [["Primus/PIP_MBAR", 1.0], ["Datex-Ohmeda/PIP", 1.01972], ["Flow-i/PIP", 1.01972]],  # PIP
-        [["Primus/PEEP_MBAR", 1.0], ["Datex-Ohmeda/SET_PEEP", 1.01972]],  # PEEP
-        [["Primus/MV", 1.0], ["Datex-Ohmeda/MV_EXP", 1.0], ["Flow-i/MV_EXP", 1.0]],  # MV, 애매함 다시 확인.
-        [["Intellivue/NIBP_SYS", 1.0], ["Bx50/NIBP_SBP", 1.0]],  # SBP, same
-        [["Intellivue/NIBP_DIA", 1.0], ["Bx50/NIBP_DBP", 1.0]],  # DBP, same
-    ]
-    ppg_list = ["Intellivue/PLETH", "X002/PLETH", "Bx50/PLETH"]
-
+path = data["path"]
+variables = data['variables']
+waveforms = data["waveforms"]
 
 def process_file(vital_path):
+    category, vitalfile = vital_path.split("\\")[-2:]
+    print(category, vitalfile)
+    
+    
+    # CNUH 경로 다른 이슈 
+    if hospital_name == "CNUH" :
+        category = category[-4:]
+        print(category, vitalfile)
+
+    #multi-processing으로 이미 생성된 파일은 생성 안하기 위해
+    # if os.path.isfile(f"./processed/waveform/{category}/{hospital_name}/" + vitalfile + ".npy") :
+    #     return 
+    
+    # vital file에서 필요한 trks 가져오기
     trk = vitaldb.vital_trks(vital_path)
-    sensor_list = []
-    factor_list = []
+    single_sensor_list, single_factor_list = [], []
+    wave_sensor_list, wave_factor_list = [], []
 
     for measurement in variables:
         for sensor_name, cali_factor in measurement:
             if sensor_name in trk:
-                sensor_list.append(sensor_name)
-                factor_list.append(cali_factor)
+                single_sensor_list.append(sensor_name)
+                single_factor_list.append(cali_factor)
+                break
+    
+    for measurement in waveforms:
+        for wave_name, cali_factor in measurement :
+            if wave_name in trk:
+                wave_sensor_list.append(wave_name)
+                wave_factor_list.append(cali_factor)
                 break
 
-    for ppg_name in ppg_list:
-        if ppg_name in trk:
-            break
+    single_sensor_list.insert(0, "EVENT")
 
-    sensor_list.insert(0, "EVENT")
 
-    if len(sensor_list) != len(variables) + 1:
+    # 개수 다르면 안쓰기로
+    if len(single_sensor_list) != len(variables) + 1:
         return
-
+    if len(wave_sensor_list) != len(waveforms) :
+        return
     # vital load
     vf = vitaldb.VitalFile(vital_path)
-    recs_df = vf.to_pandas(",".join(sensor_list), interval=1, return_datetime=True)
-    # ppgsqi_df = vf.to_pandas(ppg_name, interval=1 / sampling_rate, return_datetime=True)
-
-    # if len(ppgsqi_df) == 0:
-    #     raise ValueError("ppgsqi array is empty after processing.")
-
-    # time index
+    recs_df = vf.to_pandas(",".join(single_sensor_list), interval=1, return_datetime=True)
+    wave_df = vf.to_pandas(",".join(wave_sensor_list), interval=1 / sampling_rate, return_datetime=True)
+    
+    # time index 맞춰주기
     recs_df.index = recs_df["Time"].dt.floor("S")
-    # ppgsqi_df.index = ppgsqi_df["Time"]
-    # ppgsqi_df = ppgsqi_df.resample("S").apply(lambda x: x.tolist())
-    # ppgsqi_df = ppgsqi_df.reindex(recs_df.index)
-    # recs_df[ppg_name] = ppgsqi_df[ppg_name]
+    wave_df.index = wave_df["Time"]
+
+    ## 각 channel별로 time으로 할당
+    for waveform in wave_sensor_list :
+        recs_df[waveform] = wave_df[waveform].resample("S").apply(lambda x: np.array(x).flatten().tolist())
+
 
     # time to range index
     data_df = recs_df.reset_index(drop=True)
-
+ 
     # # EVENT LABELING
     # ### 1) beak : ['95':'end'] & <95
 
@@ -102,63 +89,86 @@ def process_file(vital_path):
     if len(start_indices) == 0 or len(end_indices) == 0:
         print(vital_path)
         return
-
     for start_idx, end_idx in zip(start_indices, end_indices):
         for ii in range(start_idx, end_idx + 1):
-            label = 1 if data_df.loc[ii, sensor_list[1]] < 95 else 0  # spo2
+            label = 1 if data_df.loc[ii, single_sensor_list[1]] < 95 else 0  # spo2
             data_df.loc[ii, "Label"] = label
-    print("label")
-    print(data_df["Label"].value_counts(), (data_df.loc[:, sensor_list[1]] < 95).sum())
 
 
-    sensor_list.remove("EVENT")
-    first_index = np.where(np.any(pd.isna(data_df[sensor_list].ffill()), axis=1) == False)[0][0]
-    last_index = np.where(np.any(pd.isna(data_df[sensor_list].bfill()), axis=1) == True)[0][0]
+    # Label이 EVENT 이므로
+    single_sensor_list.remove("EVENT")
+    
+    first_index, last_index = 0, len(data_df)
+    first_index = np.where(np.any(pd.isna(data_df[single_sensor_list].ffill()), axis=1) == False)[0][0]
+    last_index = np.where(np.any(pd.isna(data_df[single_sensor_list].bfill()), axis=1) == True)[0][0] + 1
+    
     # Trim
-    data_df = data_df.iloc[first_index : last_index + 1]
+    data_df = data_df.iloc[first_index : last_index]
+    data_df = data_df.iloc[: len(data_df) // 2 * 2]
+    #print(data_df)
 
-    # recs(11 variables), ppgsqi(ppg convert ppgsqi), label
-    recs = np.array(data_df[sensor_list])  # 11 variables
-    label = np.array(data_df["Label"])
-    # ppgsqi = np.array(data_df[ppg_name].tolist()).reshape(-1,).astype(float)
+    # recs(11 variables), waveforms, label
+    recs = np.array(data_df[single_sensor_list])  # 11 variables (n,11)
+    label = np.array(data_df["Label"])  # (n,) 
 
-    # plt.subplot(4,1,1)
-    # plt.plot(ppgsqi)
-    # ppgsqi = nk.ppg_clean(ppgsqi, sampling_rate=sampling_rate) # clean
-    # if len(ppgsqi) == 0:
-    #     raise ValueError("ppgsqi array is no clean")
+    #print(recs.shape, label.shape)
+    ## 길이 너무 작으면 ppg_clean 안될까봐
+    if len(data_df[wave_sensor_list[0]]) < 1000 :
+        print(vital_path)
+        return 
+    #try : 
+    # clean & downsampling .value
+    def flatten(series) :
+        return [item for sublist in series for item in sublist]
+    
 
-    # plt.subplot(4,1,2)
-    # plt.plot(ppgsqi)
-    # ppgsqi = nk.ppg_quality(ppgsqi, sampling_rate=sampling_rate) # sqi
-    # plt.subplot(4,1,3)
-    # plt.plot(ppgsqi)
-    # if len(ppgsqi) == 0:
-    #     raise ValueError("ppgsqi array is no quality")
+    recs_ppg = flatten(data_df[wave_sensor_list[0]])
+    recs_ppg = np.array(pd.Series(recs_ppg).ffill().bfill(), dtype=float) * np.array(wave_factor_list[0])
+    recs_awp = flatten(data_df[wave_sensor_list[1]])
+    recs_awp = np.array(pd.Series(recs_awp).ffill().bfill(), dtype=float) * np.array(wave_factor_list[1])
+    recs_co2 = flatten(data_df[wave_sensor_list[2]])
+    recs_co2 = np.array(pd.Series(recs_co2).ffill().bfill(), dtype=float) * np.array(wave_factor_list[2])
 
-    # ppgsqi = np.mean(ppgsqi.reshape(-1, sampling_rate), axis=1) # mean
-    # plt.subplot(4,1,4)
-    # plt.plot(ppgsqi)
-    # if len(ppgsqi) == 0:
-    #     raise ValueError("ppgsqi array is no mean")
-    # plt.savefig("ppg.png")
+    
+    # 전체적으로 다 nan인 경우 
+    if np.isnan(recs_ppg).sum() == recs_ppg.shape[0] :
+        return
+    if np.isnan(recs_ppg).sum() >= 1 or np.isnan(recs_awp).sum() >= 1 or np.isnan(recs_co2).sum() >= 1:
+        return
 
-    # Add all variables
+
+    recs_ppg = nk.ppg_clean(recs_ppg.reshape(-1,), sampling_rate=sampling_rate) # (n,500)
+    recs_ppg = np.mean(recs_ppg.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
+    recs_awp = np.mean(recs_awp.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
+    recs_co2 = np.mean(recs_co2.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
+
+    # Add single measurements
     recs = np.array(pd.DataFrame(recs).ffill().bfill())
-    recs = recs * np.array(factor_list)  # Adjust unit
-    # recs = np.concatenate([np.array(recs), np.array(ppgsqi).reshape(-1, 1), np.array(label).reshape(-1, 1)], axis=1)  # Concate
-    recs = np.concatenate([np.array(recs), np.array(label)[:, np.newaxis]], axis=1)  # Concate
+    recs = recs * np.array(single_factor_list)  # Adjust unit
+    recs = np.concatenate([recs, label[:, np.newaxis]], axis=1)  # Concat (n,12)
+
+    # Add waveforms
+    recs_waveforms = np.stack([recs_ppg, recs_awp, recs_co2], axis=-1) # n x 100 x 3
+    spo2_included = np.tile(recs[:,0][:, np.newaxis, np.newaxis], (1,sampling_rate_after, 1))
+    label_included = np.tile(recs[:,-1][:, np.newaxis, np.newaxis], (1,sampling_rate_after,1))
+    recs_waveforms = np.concatenate([recs_waveforms, spo2_included, label_included], axis=-1) # n x 100 x 5
+
+    recs_waveforms = recs_waveforms.reshape(-1, recs_waveforms.shape[2]).astype(np.float32) # (n x 100) x 5
+    #print(recs.shape, recs_waveforms.shape)
+    
     recs = recs[::2]  # Resample for every 2 seconds
+    assert recs.shape[0] * sampling_rate_after * 2 == recs_waveforms.shape[0] 
+    np.save(f"./processed/waveform/{category}/{hospital_name}1/" + vitalfile + ".npy", recs_waveforms)
+    np.save(f"./processed/single/{category}/{hospital_name}1/" + vitalfile + ".npy", recs)
 
-    print(recs.shape)
-    category, vitalfile = vital_path.split("/")[-2:]
-    np.save(f"./processed/{category}/{hospital_name}/" + vitalfile + ".npy", recs)
 
+if __name__ == "__main__" :
+    freeze_support()
+    with Pool() as pool:
+        counters = pool.map(process_file, glob.glob(path))
 
-# with Pool(processes = 14) as pool:
-#     counters = pool.map(process_file, glob.glob(path))
+    #process_file("./raw/SNUH/train/P10_190703_125228.vital")
+    # for idx, vital_path in enumerate(glob.glob(path)):
+    #     print(vital_path)
+    #     break
 
-for idx, vital_path in enumerate(glob.glob(path)):
-    process_file(vital_path)
-    if idx == 1:
-        break
