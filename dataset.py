@@ -6,17 +6,13 @@ from tqdm import tqdm
 from collections import Counter
 import math
 from easydict import EasyDict as edict
-import yaml
+import pandas as pd
 
-
-with open("config.yaml", "r", encoding="utf-8-sig") as f:
-	cfg = edict(yaml.safe_load(f))
-	print(cfg)
 
 
 class WaveformsDataLoader(Sequence):
-	def __init__(self, data_type, data_path, *args, **kwargs):
-		super(WaveformsDataLoader, self).__init__(*args, **kwargs)
+	def __init__(self, data_type, data_path, cfg):
+		super(WaveformsDataLoader, self).__init__()
 		self.type = data_type
 		self.data_file_list = data_path
 
@@ -31,9 +27,14 @@ class WaveformsDataLoader(Sequence):
 		self.y_1 = 0
 		self.cur_page = 0
 
+
+		demo_csv = pd.read_csv("./data/data_final_vitaldb.csv")
 		cur = 0
 		for file_path in tqdm(self.data_file_list):
+			file_name = file_path.split("/")[-1]
+			print(file_name)
 			data = np.load(file_path, allow_pickle=True)
+			break
 			y = data[:,-1]
 			if len(y) >= self.learning_win + self.pred_win: 
 				idxs, y_valid = self._search_index(y)
@@ -54,16 +55,17 @@ class WaveformsDataLoader(Sequence):
 		if self.type == "test":
 			self.index_sampled = idx_list
 			self.len = len(self.index_sampled)
+		# self.sstride
 
 	def _search_index(self, y, stride=200):
 		# y : 1d array
-		y_learn = y[np.arange(self.learning_win) + np.arange(0, len(y) - self.learning_win - self.pred_win, stride)[:, None]]  # n' x learning_win
-		y_pred = y[np.arange(self.pred_win) + np.arange(self.learning_win, len(y) - self.pred_win, stride)[:, None]]  # n' x pred_win
+		y_learn = y[np.arange(self.learning_win) + np.arange(0, len(y) - self.learning_win - self.pred_win - stride + 1, stride)[:, None]]  # n' x learning_win
+		y_pred = y[np.arange(self.pred_win) + np.arange(self.learning_win, len(y) - self.pred_win - stride + 1, stride)[:, None]]  # n' x pred_win
 		
 		y_learn = np.any(y_learn == 1, axis=1)  # n'
 		y_pred = np.any(y_pred == 1, axis=1)  # n'
 
-		valid = np.logical_not(np.logical_and(y_learn, y_pred))  # n'
+		valid = np.logical_not(y_learn)  # n'
 		idx_list = np.where(valid == True)[0] * stride  # Ensure it's a 1D array of indices
 		y_pred_valid = y_pred[valid]
 		return idx_list, y_pred_valid
@@ -77,8 +79,11 @@ class WaveformsDataLoader(Sequence):
 
 		recs = []
 		batch_idx = self.index_sampled[index * self.batch_size : min((index + 1) * self.batch_size, len(self.index_sampled))]
+		if self.type == "train" : 
+			batch_idx += np.random.randint(200, size=len(batch_idx))
+
 		end_idx = batch_idx[-1] + self.learning_win + self.pred_win
-		offset = self.page_len[self.cur_page]
+		cur_page_idx = self.page_len[self.cur_page]
 
 		while True:
 			if self.page_len[self.cur_page] > end_idx:
@@ -87,14 +92,17 @@ class WaveformsDataLoader(Sequence):
 			if self.page_len[self.cur_page] == end_idx:
 				break
 			# Find the correct file and batch
-			recs.append(np.load(self.data_file_list[self.cur_page]).reshape(-1,5))
+			recs.append(np.load(self.data_file_list[self.cur_page]))
 			self.cur_page += 1
 
 		recs = np.concatenate(recs, axis=0)  # Concatenate arrays
-		recs = recs[np.arange(self.learning_win + self.pred_win) + batch_idx[:, None] - offset] # batch_size x win_len x channel
+		recs = recs[np.arange(self.learning_win + self.pred_win) + batch_idx[:, None] - cur_page_idx] # batch_size x win_len x channel
 		x = recs[:, :self.learning_win, :-2] # batch_size x learning_win_len x channel(waveforms)
 		y_pred = np.any(recs[:, self.learning_win:, -1] == 1, axis=1).astype(np.float32) # batch_size
 		y_all = np.any((recs[:, self.learning_win:, -2] < 95) == 1, axis=1)  # batch_size
+
+
+
 		
 		if self.type == "train" : 
 			return x, y_pred
@@ -105,3 +113,16 @@ class WaveformsDataLoader(Sequence):
 		self.cur_page = 0
 		if not self.type == "test":
 			self.index_sampled = np.sort(np.append(np.random.choice(self.y0_index, len(self.y1_index)), self.y1_index))
+
+
+
+if __name__ =="__main__" :
+	# Variables npy path list
+	path_list = sorted(glob.glob(data_dir))
+	train_list = sorted(path_list[:int(len(path_list) * 0.8)])
+	validation_list = sorted(path_list[int(len(path_list) * 0.8):])
+
+
+
+	WaveformsDataLoader("train", train_list, cfg)
+	

@@ -6,9 +6,9 @@ variables:
     - ["Radical7/SPO2", 1.0]
     - ["Root/SPO2", 1.0]
     - ["Bx50/PLETH_SPO2", 1.0]
+
   - - ["Intellivue/PLETH_HR", 1.0]
     - ["Bx50/PLETH_HR", 1.0]
-
 
   - - ["Primus/ETCO2", 1.0]
     - ["Datex-Ohmeda/ETCO2", 7.5]
@@ -17,23 +17,34 @@ variables:
   - - ["Primus/FIO2", 1.0]
     - ["Datex-Ohmeda/FIO2", 1.0]
     - ["Flow-i/FIO2", 1.0]
+
   - - ["Primus/TV", 1.0]
     - ["Datex-Ohmeda/TV_EXP", 1.0]
     - ["Flow-i/TV_EXP", 1.0]
+
   - - ["Primus/SET_PIP", 0.98067]
     - ["Datex-Ohmeda/SET_PINSP", 1.0]
+
   - - ["Primus/PIP_MBAR", 1.0]
     - ["Datex-Ohmeda/PIP", 1.01972]
     - ["Flow-i/PIP", 1.01972]
+
   - - ["Primus/PEEP_MBAR", 1.0]
     - ["Datex-Ohmeda/SET_PEEP", 1.01972]
+
   - - ["Primus/MV", 1.0]
     - ["Datex-Ohmeda/MV_EXP", 1.0]
     - ["Flow-i/MV_EXP", 1.0]
+
   - - ["Intellivue/NIBP_SYS", 1.0]
     - ["Bx50/NIBP_SBP", 1.0]
+
   - - ["Intellivue/NIBP_DIA", 1.0]
     - ["Bx50/NIBP_DBP", 1.0]
+
+  - - ["Intellivue/ECG_II", 1.0]
+    - ["Bx50/HR", 1.0]
+  
 
 waveforms:
 - - ["Intellivue/PLETH", 1.0]
@@ -47,3 +58,6 @@ waveforms:
 - - ["Primus/CO2", 1.0]
   - ["Datex-Ohmeda/CO2",7.5]
   - ["Flow-i/CO2" , 1.0]
+
+- - ["Intellivue/ECG_II", 1.0]
+  - ["Bx50/ECG1", 1.0]

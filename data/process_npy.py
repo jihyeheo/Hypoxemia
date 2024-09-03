@@ -12,9 +12,9 @@ import yaml
 warnings.filterwarnings("ignore")
 sampling_rate = 500
 sampling_rate_after = 100
-hospital_name = "SNUH"
+hospital_name = "CNUH"
 
-with open(f'{hospital_name}_variables.yaml', 'r') as file:
+with open(f'D:/Hypoxemia/{hospital_name}_variables.yaml', 'r') as file:
     data = yaml.safe_load(file)
 
 path = data["path"]
@@ -22,8 +22,11 @@ variables = data['variables']
 waveforms = data["waveforms"]
 
 def process_file(vital_path):
+
+    # print(vital_path)
     category, vitalfile = vital_path.split("\\")[-2:]
-    print(category, vitalfile)
+    print(category) 
+    print(vitalfile)
     
     
     # CNUH 경로 다른 이슈 
@@ -32,10 +35,11 @@ def process_file(vital_path):
         print(category, vitalfile)
 
     #multi-processing으로 이미 생성된 파일은 생성 안하기 위해
-    # if os.path.isfile(f"./processed/waveform/{category}/{hospital_name}/" + vitalfile + ".npy") :
-    #     return 
+    if os.path.isfile(f"./processed/waveform/{category}/{hospital_name}/" + vitalfile + ".npy") :
+        return 
     
     # vital file에서 필요한 trks 가져오기
+    print(vital_path)
     trk = vitaldb.vital_trks(vital_path)
     single_sensor_list, single_factor_list = [], []
     wave_sensor_list, wave_factor_list = [], []
@@ -105,7 +109,6 @@ def process_file(vital_path):
     # Trim
     data_df = data_df.iloc[first_index : last_index]
     data_df = data_df.iloc[: len(data_df) // 2 * 2]
-    #print(data_df)
 
     # recs(11 variables), waveforms, label
     recs = np.array(data_df[single_sensor_list])  # 11 variables (n,11)
@@ -128,12 +131,14 @@ def process_file(vital_path):
     recs_awp = np.array(pd.Series(recs_awp).ffill().bfill(), dtype=float) * np.array(wave_factor_list[1])
     recs_co2 = flatten(data_df[wave_sensor_list[2]])
     recs_co2 = np.array(pd.Series(recs_co2).ffill().bfill(), dtype=float) * np.array(wave_factor_list[2])
-
+    recs_ecg= flatten(data_df[wave_sensor_list[3]])
+    recs_ecg = np.array(pd.Series(recs_ecg).ffill().bfill(), dtype=float) * np.array(wave_factor_list[3])
     
-    # 전체적으로 다 nan인 경우 
-    if np.isnan(recs_ppg).sum() == recs_ppg.shape[0] :
-        return
-    if np.isnan(recs_ppg).sum() >= 1 or np.isnan(recs_awp).sum() >= 1 or np.isnan(recs_co2).sum() >= 1:
+    # # 전체적으로 다 nan인 경우 
+    # if np.isnan(recs_ppg).sum() == recs_ppg.shape[0] :
+    #     return
+    # 하나라도 nan이 있는 경우 일단 지울까잉? ffill,bfill 했으니께..
+    if np.isnan(recs_ppg).sum() >= 1 or np.isnan(recs_awp).sum() >= 1 or np.isnan(recs_co2).sum() >= 1 or np.isnan(recs_ecg).sum() >= 1 :
         return
 
 
@@ -142,13 +147,23 @@ def process_file(vital_path):
     recs_awp = np.mean(recs_awp.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
     recs_co2 = np.mean(recs_co2.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
 
+    recs_ecg = nk.ecg_clean(recs_ecg.reshape(-1,), sampling_rate=sampling_rate) # (n,500)
+    recs_ecg = np.mean(recs_ecg.reshape(-1, sampling_rate_after, int(sampling_rate/sampling_rate_after)), axis=2) # (n,100)
+
     # Add single measurements
-    recs = np.array(pd.DataFrame(recs).ffill().bfill())
+    recs = pd.DataFrame(recs).applymap(lambda x: float(x) if isinstance(x, (int, float, str)) else np.nan)
+    recs = recs.ffill().bfill().to_numpy()
+    #recs = np.array(pd.DataFrame(recs).ffill().bfill(), dtype=float)
+    for col_ in range(recs.shape[1]) :
+        if np.isnan(recs[:, col_].reshape(-1,)).sum() >= 1:
+            print("노생성 :", vital_path)
+            return
+            
     recs = recs * np.array(single_factor_list)  # Adjust unit
     recs = np.concatenate([recs, label[:, np.newaxis]], axis=1)  # Concat (n,12)
 
     # Add waveforms
-    recs_waveforms = np.stack([recs_ppg, recs_awp, recs_co2], axis=-1) # n x 100 x 3
+    recs_waveforms = np.stack([recs_ppg, recs_awp, recs_co2, recs_ecg], axis=-1) # n x 100 x 3
     spo2_included = np.tile(recs[:,0][:, np.newaxis, np.newaxis], (1,sampling_rate_after, 1))
     label_included = np.tile(recs[:,-1][:, np.newaxis, np.newaxis], (1,sampling_rate_after,1))
     recs_waveforms = np.concatenate([recs_waveforms, spo2_included, label_included], axis=-1) # n x 100 x 5
@@ -158,8 +173,8 @@ def process_file(vital_path):
     
     recs = recs[::2]  # Resample for every 2 seconds
     assert recs.shape[0] * sampling_rate_after * 2 == recs_waveforms.shape[0] 
-    np.save(f"./processed/waveform/{category}/{hospital_name}1/" + vitalfile + ".npy", recs_waveforms)
-    np.save(f"./processed/single/{category}/{hospital_name}1/" + vitalfile + ".npy", recs)
+    np.save(f"./processed/waveform/{category}/{hospital_name}/" + vitalfile + ".npy", recs_waveforms)
+    np.save(f"./processed/single/{category}/{hospital_name}/" + vitalfile + ".npy", recs)
 
 
 if __name__ == "__main__" :
@@ -167,8 +182,8 @@ if __name__ == "__main__" :
     with Pool() as pool:
         counters = pool.map(process_file, glob.glob(path))
 
-    #process_file("./raw/SNUH/train/P10_190703_125228.vital")
     # for idx, vital_path in enumerate(glob.glob(path)):
     #     print(vital_path)
+    #     process_file("./raw/CNUH/test/02037321_CU_ST001_D00001_02037321_ORC5_221122_082757.vital")
     #     break
 

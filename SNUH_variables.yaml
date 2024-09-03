@@ -4,39 +4,48 @@ variables : # [sensor name, calibration factor] n = 11
   - - ["Intellivue/PLETH_SAT_O2", 1.0]
     - ["Solar8000/PLETH_SPO2", 1.0]
     - ["Root/SPO2", 1.0]  # O2 sat, same
+
   - - ["Intellivue/PLETH_HR", 1.0]
     - ["Solar8000/PLETH_HR", 1.0]  # HR, same
+
   - - ["Primus/ETCO2", 1.0]
     - ["Datex-Ohmeda/ETCO2", 7.5] 
     - ["Solar8000/ETCO2", 1.0]  # ETCO2
+
   - - ["Primus/FIO2", 1.0]
     - ["Datex-Ohmeda/FIO2", 1.0]
     - ["Solar8000/FIO2", 1.0]  # FIO2, same
-    
+
   - - ["Primus/TV", 1.0]
     - ["Datex-Ohmeda/TV_EXP", 1.0]
     - ["Solar8000/VENT_TV", 1.0]  # TV, same
-  
+
   - - ["Primus/SET_PIP", 0.98067]
     - ["Datex-Ohmeda/SET_PINSP", 1.0]
     - ["Solar8000/VENT_SET_PCP", 1.0]  # SET_PIP
-        
+
   - - ["Primus/PIP_MBAR", 1.0]
     - ["Datex-Ohmeda/PIP", 1.01972]
     - ["Solar8000/VENT_PIP", 1.0]  # PIP
+
   - - ["Primus/PEEP_MBAR", 1.0]
     - ["Datex-Ohmeda/SET_PEEP", 1.01972]
     - ["Solar8000/VENT_PEEP", 1.0]  # PEEP
+
   - - ["Primus/MV", 1.0]
     - ["Datex-Ohmeda/MV_EXP", 1.0]
     - ["Solar8000/VENT_MV", 1.0]  # MV, same
 
 
-
   - - ["Solar8000/NIBP_SBP", 1.0]
     - ["Intellivue/NIBP_SYS", 1.0]  # SBP, same
+
   - - ["Solar8000/NIBP_DBP", 1.0]
     - ["Intellivue/NIBP_DIA", 1.0]  # DBP, same
+
+  - - ["Solar8000/HR", 1.0]
+    - ["Intellivue/ECG_HR", 1.0]
+  
 
 waveforms :
   # ppg
@@ -50,4 +59,9 @@ waveforms :
   # co2
   - - ["Primus/CO2", 1.0]
     - ["Datex-Ohmeda/CO2", 7.5]
+
+  # ecg
+  - - ["SNUADC/ECG", 1.0]
+    - ["SNUADC/ECG_II", 1.0]
+    - ["Intellivue/ECG_II", 1.0]
 
