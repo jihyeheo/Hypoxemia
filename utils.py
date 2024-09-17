@@ -10,7 +10,6 @@ from sklearn.metrics import (
 
 import matplotlib.pyplot as plt
 import numpy as np
-import json
 import os
 from PIL import Image
 import io
@@ -18,6 +17,7 @@ import tensorflow as tf
 from keras import backend as K
 from keras.metrics import Metric
 from tensorboard.plugins.hparams import api as hp
+from pathlib import Path
 
 
 class FBetaScore(Metric):
@@ -59,55 +59,7 @@ class FBetaScore(Metric):
         self.false_negatives.assign(0)
 
 
-def calculate_specificity(true_pred, thresholds):
-    # True Negative (TN)과 False Positive (FP) 초기화
-    TN = 0
-    FP = 0
-
-    # 임계값(threshold)마다 TN과 FP를 계산
-    for i in range(len(true_pred)):
-        if true_pred[i] < thresholds:
-            TN += 1
-        else:
-            FP += 1
-
-    # Specificity 계산
-    specificity = TN / (TN + FP)
-
-    return specificity
-
-def pretty_json(hp):
-  json_hp = json.dumps(hp, indent=2)
-  return "".join("\t" + line for line in json_hp.splitlines(True))
-
-
-def plot_confusion_matrix(true_labels, predictions):
-    # Create a confusion matrix display
-    disp = ConfusionMatrixDisplay.from_predictions(
-        true_labels,
-        predictions,
-        cmap=plt.cm.Blues
-    )
-    
-    # Save the plot to a BytesIO object
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    plt.close()
-    
-    # Read the BytesIO object into a PIL Image
-    image = Image.open(buf)
-    
-    # Convert the PIL Image to a NumPy array
-    image_np = np.array(image)
-    
-    # Normalize the image if necessary (TensorBoard expects [0, 1] range)
-    if image_np.max() > 1:
-        image_np = image_np / 255.0
-    
-    return image_np
-
-def plot_roc_curve(res, title):
+def plot_roc_curve(res, title, save_path):
     # Prepare the ROC curve plot
     fig, ax = plt.subplots(figsize=(6, 6))
     mean_fpr = np.linspace(0, 1, 100)
@@ -162,36 +114,20 @@ def plot_roc_curve(res, title):
     ax.set(
         xlabel="False Positive Rate",
         ylabel="True Positive Rate",
-        title=title,
     )
     ax.legend(loc="lower right")
 
-    # Save plot to a BytesIO object
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    plt.close()
+    plt.savefig(str(save_path / "roc.png"))
 
-    # Convert BytesIO object to a NumPy array
-    image = Image.open(buf)
-    image_np = np.array(image)
-
-    # Normalize image if necessary
-    if image_np.max() > 1:
-        image_np = image_np / 255.0
-
-    return tprs, aucs, auprcs, image_np
+    return tprs, aucs, auprcs
 
 
-def analyze(save_path, title, test_type, res, params):
+def analyze(log_dir, title, test_type, res, params):
     # ROC
-    learning_win = params[1]
-    pred_win = params[2]
-    log_dir = save_path +f"\\{test_type}\\"
+    save_path = Path(log_dir) / test_type
+    os.makedirs(str(save_path), exist_ok=True)
 
-    _, aucs, auprcs, image = plot_roc_curve(res, title)
-    with tf.summary.create_file_writer(log_dir).as_default():
-        tf.summary.image(f"{test_type} ROC Curve", image[None, ...], step=0)
+    _, aucs, auprcs = plot_roc_curve(res, title, save_path)
 
     aucs = np.array(aucs)
     auprcs = np.array(auprcs)
@@ -199,15 +135,13 @@ def analyze(save_path, title, test_type, res, params):
     print("AUROC(std) ", aucs.mean(), "(", aucs.std(), ")")
     print("AUPRC(std) ", auprcs.mean(), "(", auprcs.std(), ")")
 
-    best_fold = np.array(aucs).argmax()
+    best_fold = aucs.argmax()
     true, pred, y_all = res[best_fold]
 
     precision, recall, thresholds = precision_recall_curve(true, pred)
-    numerator = 2 * recall * precision
-    denom = recall + precision
-    f1_scores = []    
-    f2_scores = []
 
+    numerator = 2 * recall * precision
+    denom = recall + precision  
     f1_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
     
     beta = 2
@@ -215,25 +149,18 @@ def analyze(save_path, title, test_type, res, params):
     denom = recall + (beta**2) * precision
     f2_scores = np.divide(numerator, denom, out=np.zeros_like(denom), where=(denom != 0))
 
-    max_f1_score = np.max(f2_scores)
-    opt_idx = np.where(f2_scores == max_f1_score)[0][0]
-    
+    opt_idx = np.where(f2_scores == np.max(f2_scores))[0][0]
     th = thresholds[opt_idx]
     y_pred_opt = (pred > th).astype(int)
-    tn, _, fn, _ = confusion_matrix(true, y_pred_opt).ravel()
-    NPV = tn / (tn + fn) if (tn + fn) > 0 else 0
-    f2_score = fbeta_score(true, y_pred_opt, beta=2)
 
     print("Threshold :", th)
     metrics = {
         "threshold": float(th),
         "Accuracy": float(np.round(accuracy_score(true, y_pred_opt), 4)),
         "Precision": float(np.round(precision[opt_idx], 4)),
-        "NPV": float(np.round(NPV, 4)),
         "Recall(PPV)": float(np.round(recall[opt_idx], 4)),
-        "Specificity": float(np.round(calculate_specificity(pred, th), 4)),
-        "F1 score": float(np.round(max_f1_score, 4)),
-        "F2 score" : float(np.round(f2_score, 4)),
+        "F1 score": float(np.round(f1_scores[opt_idx], 4)),
+        "F2 score" : float(np.round(f2_scores[opt_idx], 4)),
         "AUROC": float(np.round(aucs[best_fold], 4)),
         "AUPRC": float(np.round(auprcs[best_fold], 4)),
         
@@ -247,9 +174,9 @@ def analyze(save_path, title, test_type, res, params):
                    "learning_rate" : params[5],
                    }
     
-    os.makedirs(log_dir, exist_ok=True)
-    with tf.summary.create_file_writer(log_dir).as_default():
-        hp.hparams(hparams_dict, trial_id=log_dir.split("\\")[-1])
+    
+    with tf.summary.create_file_writer(str(save_path)).as_default():
+        hp.hparams(hparams_dict, trial_id=save_path.parent.name)
 
         tf.summary.scalar("auc", metrics["AUROC"], step=1)
         tf.summary.scalar("prc", metrics["AUPRC"], step=1)
@@ -260,20 +187,18 @@ def analyze(save_path, title, test_type, res, params):
         tf.summary.scalar("Accuracy", metrics["Accuracy"], step=1)
         tf.summary.scalar("Precision", metrics["Precision"], step=1)
         tf.summary.scalar("Recall(PPV)", metrics["Recall(PPV)"], step=1)
-        tf.summary.scalar("NPV", metrics["NPV"], step=1)
-        tf.summary.scalar("Specificity", metrics["Specificity"], step=1)
 
-    viz = RocCurveDisplay.from_predictions(
+
+    ConfusionMatrixDisplay.from_predictions(
         true,
-        pred,
+        y_pred_opt,
+        cmap=plt.cm.Blues
     )
-    interp_tpr = np.interp(np.linspace(0, 1, 100), viz.fpr, viz.tpr)
-    interp_tpr[0] = 0.0
-    precision, recall, _ = precision_recall_curve(true, pred)
-    disp = plot_confusion_matrix(true, y_pred_opt)
+    plt.savefig(str(save_path / "CM_all.png"))
     mask = y_all == 1
-    disp2 = plot_confusion_matrix(true[mask], y_pred_opt[mask])
-
-    with tf.summary.create_file_writer(log_dir).as_default():
-        tf.summary.image(f"{test_type} confusion matrix all", disp[None, ...], step=0)
-        tf.summary.image(f"{test_type} confusion matrix hypoxemia", disp2[None, ...], step=0)
+    ConfusionMatrixDisplay.from_predictions(
+        true[mask],
+        y_pred_opt[mask],
+        cmap=plt.cm.Blues
+    )
+    plt.savefig(str(save_path / "CM_hypoxemia.png"))

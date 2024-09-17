@@ -16,16 +16,14 @@ from tensorboard.plugins.hparams import api as hp
 
 # custom import
 from model import get_model
-from utils import analyze, FBetaScore
+from utils import analyze
 from dataset import WaveformsDataLoader
-
 
 # Seed
 RANDOM_SEED = 0
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 tf.random.set_seed(RANDOM_SEED)
-
 
 # args
 parser = argparse.ArgumentParser()
@@ -34,19 +32,16 @@ parser.add_argument("--weight")
 args = parser.parse_args()
 save_path = f"{args.weight}" 
 
-
 # parameter
 with open(save_path + "/config.yaml", "r", encoding="utf-8-sig") as f:
 	cfg = edict(yaml.safe_load(f))
 
-cfg.param = cfg
+num_epochs = cfg.param.num_epochs
+batch_size = cfg.param.batch_size
+init_lr = cfg.param.init_lr
 learning_win = cfg.param.learning_win
 pred_win = cfg.param.pred_win
-data_dir = cfg.param.data_dir
-n_cv_split = 0#cfg.param.n_cv_split
-batch_size = cfg.param.batch_size
-sampling_rate = 100#cfg.param.sampling_rate
-learning_rate = cfg.param.init_lr
+sampling_rate = cfg.param.sampling_rate
 
 
 HP_TEST_TYPE = hp.HParam("test_type")#, hp.Discrete(["int", "ext"]))
@@ -78,56 +73,39 @@ with tf.summary.create_file_writer(save_path).as_default():
 	)
 
 # Variables npy path list
-int_test_path_list = sorted(glob.glob(data_dir.replace("train", "test")))
-ext_test_path_list = sorted(glob.glob(data_dir.replace("SNUH", "CNUH").replace("train", "test")))
+int_test_path_list = sorted(glob.glob("./data/processed/test/SNUH/*.pkl".replace("train", "test")))
+ext_test_path_list = sorted(glob.glob("./data/processed/test/CNUH/*.pkl".replace("train", "test")))
 print("int test:, ", len(int_test_path_list), "ext test:", len(ext_test_path_list))
-int_test_dl = WaveformsDataLoader(data_type="test", 
-								  data_path=int_test_path_list,
-								  cfg=cfg 
-								  )
-ext_test_dl = WaveformsDataLoader(data_type="test", 
-								  data_path=ext_test_path_list,
-								  cfg=cfg 
-								  )
+int_test_dl = WaveformsDataLoader("test", int_test_path_list, cfg)
+ext_test_dl = WaveformsDataLoader("test", ext_test_path_list, cfg)
+(X_wave, X_single, X_meta), _, _ = int_test_dl[0]
+print("X_wave shape: ", X_wave.shape)
+print("X_single shape: ", X_single.shape)
+print("X_meta shape: ", X_meta.shape)
 
+model = get_model(args.model, X_wave.shape[1:], use_single=True, use_meta=True)
+model.load_weights(save_path + f"/model.weights.h5")
 
 # test results
 for test_type in ["int", "ext"] :
+	test_dl = globals()[f"{test_type}_test_dl"]
+
 	res = []
-	if n_cv_split != 0 :
-		print()
-		#for fold in range(1, n_cv_split+1, 1):
-	else :
-		test_dl = globals()[f"{test_type}_test_dl"]
-		for x, y, y_all in test_dl :  
-			break
-		model = get_model(args.model, input_shape=x.shape[1:], n_classes=1, y_train=y)
+	y_list = []
+	y_all_list = []
+	y_proba_list = []
 
-		if args.model == "gbm":
-			model.load_model(save_path + f"/model")
-			y_proba = model.predict_proba(x.reshape(-1, x.shape[1]*x.shape[2]))[:, 1]
+	for x, y, y_all in tqdm(test_dl) :
 
-		else:
-			custom_obj = {
-				'FBetaScore': FBetaScore(beta=2)
-			}   
-			model = load_model(save_path + f"/model.keras", custom_objects=custom_obj) 
+		y_proba = model.predict(x, verbose=False)[:, 0]
+		y_list.append(y)
+		y_all_list.append(y_all)
+		y_proba_list.append(y_proba)
 
-			y_list = []
-			y_all_list = []
-			y_proba_list = []
+	y_np = np.concatenate(y_list)
+	y_all_np = np.concatenate(y_all_list)
+	y_proba_np = np.concatenate(y_proba_list)
 
-			for x, y, y_all in tqdm(test_dl) :
-				print(x.shape, y.shape)
-				y_proba = model.predict(x, verbose=False)
-				y_list.append(y)
-				y_all_list.append(y_all)
-				y_proba_list.append(y_proba)
-
-			y_np = np.concatenate(y_list)
-			y_all_np = np.concatenate(y_all_list)
-			y_proba_np = np.concatenate(y_proba_list)
-
-			res.append((y_np, y_proba_np, y_all_np))
-			params = [test_type, learning_win, pred_win, sampling_rate, batch_size, learning_rate]
-			analyze(save_path, model, test_type, res, params)  # visualzation auprc, auroc
+	res.append((y_np, y_proba_np, y_all_np))
+	params = [test_type, learning_win, pred_win, sampling_rate, batch_size, init_lr]
+	analyze(save_path, model, test_type, res, params)  # visualzation auprc, auroc

@@ -1,12 +1,7 @@
 param:
-  data_dir :  "./data/processed/waveform/train/SNUH/*.npy"
-  learning_win : 30
-  pred_win : 30
+  learning_win : 60
+  pred_win : 60
   sampling_rate : 100
-  init_lr: 1.0e-5 #1.0e-5 #5.0e-5 # 2.0e-5, 5.0e-5
-  num_epochs: 25
-  demo_shape: 0 # no 적용
-  batch_size: 256
-  n_cv_split : 0
-
-
+  init_lr: 1.0e-4 #1.0e-5 #5.0e-5 # 2.0e-5, 5.0e-5
+  num_epochs: 10
+  batch_size: 16

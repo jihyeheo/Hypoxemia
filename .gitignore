@@ -168,3 +168,6 @@ cython_debug/
 *.png
 weights/
 log/
+*.keras
+*.pkl
+nohup.out
